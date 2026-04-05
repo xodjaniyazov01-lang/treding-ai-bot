@@ -1,0 +1,2 @@
+ts,ticker,pattern_name,side,st_3m,st_1h,st_4h,trend_align,is_consolidation,breakout,volume_spike,neckline_break,atr_ratio,rsi,close_vs_ema,label,notes
+1770748313,win,bull_flag,BUY,1,1,1,1,0,1,1,0,0.005,60.0,1,1,
