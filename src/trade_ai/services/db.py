@@ -45,9 +45,45 @@ def init_db() -> None:
             );
             """
         )
+        ensure_signal_schema(con)
         con.commit()
     finally:
         con.close()
+
+
+def ensure_signal_schema(con: sqlite3.Connection) -> None:
+    existing = {
+        str(row[1]).lower()
+        for row in con.execute("PRAGMA table_info(signals);").fetchall()
+    }
+    required_columns = {
+        "price_at_signal": "REAL",
+        "price_at_check": "REAL",
+        "pnl_pct": "REAL",
+        "validated_at": "TEXT",
+        "validation_outcome": "TEXT",
+    }
+    for column, col_type in required_columns.items():
+        if column not in existing:
+            con.execute(f"ALTER TABLE signals ADD COLUMN {column} {col_type};")
+
+    con.execute(
+        """
+        UPDATE signals
+        SET price_at_signal = entry
+        WHERE price_at_signal IS NULL
+          AND entry IS NOT NULL;
+        """
+    )
+    con.execute(
+        """
+        UPDATE signals
+        SET validation_outcome='PENDING'
+        WHERE status='OPEN'
+          AND validated_at IS NULL
+          AND (validation_outcome IS NULL OR validation_outcome = '');
+        """
+    )
 
 
 def set_meta(key: str, value: str) -> None:
@@ -68,15 +104,31 @@ def get_meta(key: str, default: str = "") -> str:
         con.close()
 
 
-def insert_signal(sig_id: str, ts: int, ticker: str, side: str, tf_label: str, interval: str, p: float, entry: float, sl: float, tp: float) -> None:
+def insert_signal(
+    sig_id: str,
+    ts: int,
+    ticker: str,
+    side: str,
+    tf_label: str,
+    interval: str,
+    p: float,
+    entry: float,
+    sl: float,
+    tp: float,
+    price_at_signal: Optional[float] = None,
+) -> None:
     con = db_connect()
     try:
         con.execute(
             """
-            INSERT OR REPLACE INTO signals(id,ts,ticker,side,tf_label,interval,p,entry,sl,tp,status,outcome,close_ts,close_price)
-            VALUES(?,?,?,?,?,?,?,?,?,?, 'OPEN', 'UNKNOWN', NULL, NULL);
+            INSERT OR REPLACE INTO signals(
+                id,ts,ticker,side,tf_label,interval,p,entry,sl,tp,
+                status,outcome,close_ts,close_price,
+                price_at_signal,price_at_check,pnl_pct,validated_at,validation_outcome
+            )
+            VALUES(?,?,?,?,?,?,?,?,?,?, 'OPEN', 'UNKNOWN', NULL, NULL, ?, NULL, NULL, NULL, 'PENDING');
             """,
-            (sig_id, ts, ticker, side, tf_label, interval, p, entry, sl, tp),
+            (sig_id, ts, ticker, side, tf_label, interval, p, entry, sl, tp, price_at_signal),
         )
         con.commit()
     finally:

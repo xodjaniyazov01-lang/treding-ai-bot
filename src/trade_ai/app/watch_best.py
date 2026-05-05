@@ -26,6 +26,7 @@ from trade_ai.services.telegram import (
     build_live_status_message,
     build_signal_message,
     build_stats_message,
+    build_validation_message,
     edit_message,
     poll_updates,
     send_control_panel,
@@ -33,7 +34,8 @@ from trade_ai.services.telegram import (
     send_message_with_id,
     send_signal,
 )
-from trade_ai.utils.helpers import clamp
+from trade_ai.services.validator import validate_pending
+from trade_ai.utils.helpers import clamp, is_finite
 from trade_ai.utils.logger import setup_logger
 
 logger = setup_logger("trade_ai.watch_best")
@@ -105,6 +107,7 @@ def pick_best(predictions: list[Prediction]) -> Optional[Prediction]:
         if ("BUY" in prediction.signal or "SELL" in prediction.signal)
         and "HOLD" not in prediction.signal
         and "CONFLICT" not in prediction.signal
+        and is_finite(prediction.p)
     ]
     if not candidates:
         return None
@@ -117,6 +120,7 @@ def pick_fallback_best(predictions: list[Prediction]) -> Optional[Prediction]:
         prediction
         for prediction in predictions
         if prediction.reason != "data_error"
+        and is_finite(prediction.p)
     ]
     if not candidates:
         return None
@@ -154,6 +158,7 @@ def winrate_text(ticker: str) -> str:
 
 def log_prediction_details(now_str: str, predictions: list[Prediction]) -> None:
     for prediction in predictions:
+        logger.info("%s | [%s] data=%s", now_str, prediction.ticker, "FAIL" if prediction.reason == "data_error" else "OK")
         if settings.TEST_MODE:
             logger.info("%s | %s", now_str, test_log_line(prediction))
             if prediction.reason == "data_error":
@@ -273,6 +278,19 @@ def main() -> None:
 
             update_live_status(status_message_id, tf_label, cycle_no, "Skanerlanmoqda", "Ochiq signallar tekshirilyapti", last_signal_label)
             update_open_signal_outcomes(limit=50)
+            validation_results = validate_pending()
+            for result in validation_results:
+                send_message(
+                    build_validation_message(
+                        ticker=str(result["ticker"]),
+                        side=str(result["side"]),
+                        outcome=str(result["outcome"]),
+                        pnl_pct=float(result["pnl"]),
+                        price_open=float(result["price_open"]),
+                        price_now=float(result["price_now"]),
+                        confidence=float(result["p"]),
+                    )
+                )
 
             tickers = settings.TEST_TICKERS if settings.TEST_MODE else read_watchlist()
             if settings.TEST_MODE:
@@ -294,6 +312,35 @@ def main() -> None:
             data_errors += cycle_data_errors
             low_proba_skips += cycle_low_proba
             maybe_adjust_threshold(data_error_ratio=(cycle_data_errors / max(1, len(predictions))) if predictions else None)
+
+            if cycle_data_errors >= 5:
+                logger.error(
+                    "%s | [DATA FAILURE MODE] data_error=%d/%d | tickers=%s",
+                    now_str,
+                    cycle_data_errors,
+                    len(predictions),
+                    ",".join(item.ticker for item in predictions if item.reason == "data_error"),
+                )
+                update_live_status(
+                    status_message_id,
+                    tf_label,
+                    cycle_no,
+                    "Data Failure Mode",
+                    f"{cycle_data_errors} ta ticker data bermadi, signal to'xtatildi",
+                    last_signal_label,
+                    next_sleep_sec=settings.SLEEP_SEC,
+                )
+                save_state(
+                    {
+                        "tf_label": tf_label,
+                        "last_key": last_key,
+                        "last_time": last_time,
+                        "last_day": last_day,
+                        "upd_offset": update_offset,
+                    }
+                )
+                time.sleep(settings.SLEEP_SEC)
+                continue
 
             best = pick_best(predictions)
             if best and settings.TEST_MODE:
@@ -400,11 +447,12 @@ def main() -> None:
                     side=side,
                     tf_label=tf_label,
                     interval=interval,
-                    p=float(best.p),
-                    entry=float(entry),
-                    sl=float(sl),
-                    tp=float(tp),
-                )
+                p=float(best.p),
+                entry=float(entry),
+                sl=float(sl),
+                tp=float(tp),
+                price_at_signal=float(entry),
+            )
                 last_signal_label = f"{best.ticker} {best.signal}"
             else:
                 logger.warning("%s | notifier_error=%s", now_str, response)

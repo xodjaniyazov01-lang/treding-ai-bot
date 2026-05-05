@@ -153,16 +153,16 @@ def send_control_panel(tf_label: str) -> Tuple[int, str]:
 def _signal_theme(signal: str) -> Tuple[str, str]:
     upper = signal.upper()
     if "EXPLOSIVE" in upper:
-        return "🚀 <b>PREMIUM EXPLOSIVE SIGNAL</b>", "Volatility squeeze breakout"
+        return "EXPLOSIVE <b>PREMIUM SIGNAL</b>", "Volatility squeeze breakout"
     if "STRONG" in upper:
-        return "🔥 <b>PREMIUM STRONG SIGNAL</b>", "Trend confirmation active"
-    return "📈 <b>PREMIUM SIGNAL</b>", "Best current setup"
+        return "STRONG <b>PREMIUM SIGNAL</b>", "Trend confirmation active"
+    return "SIGNAL <b>PREMIUM SETUP</b>", "Best current setup"
 
 
 def confidence_bar(confidence: float, slots: int = 10) -> str:
     pct = max(0, min(100, int(round(float(confidence) * 100))))
     filled = max(0, min(slots, int(round(pct / 10))))
-    return f"{'🟩' * filled}{'⬜' * (slots - filled)} {pct}%"
+    return f"{'#' * filled}{'-' * (slots - filled)} {pct}%"
 
 
 def tradingview_url(ticker: str) -> str:
@@ -185,22 +185,22 @@ def build_signal_message(
     lines = [
         header,
         "",
-        f"🧾 <b>Symbol:</b> <code>{escape(ticker)}</code>",
-        f"📌 <b>Signal:</b> <b>{escape(signal)}</b>",
-        f"📊 <b>Confidence:</b> {confidence_bar(confidence)}",
-        f"⏰ <b>Time:</b> <code>{escape(now_dt.strftime('%Y-%m-%d %H:%M:%S'))}</code>",
-        f"🕒 <b>Timeframe:</b> <b>{escape(tf_label)}</b>",
-        f"🧠 <b>Setup:</b> {escape(setup)}",
+        f"<b>Symbol:</b> <code>{escape(ticker)}</code>",
+        f"<b>Signal:</b> <b>{escape(signal)}</b>",
+        f"<b>Confidence:</b> {confidence_bar(confidence)}",
+        f"<b>Time:</b> <code>{escape(now_dt.strftime('%Y-%m-%d %H:%M:%S'))}</code>",
+        f"<b>Timeframe:</b> <b>{escape(tf_label)}</b>",
+        f"<b>Setup:</b> {escape(setup)}",
     ]
     if rsi is not None:
-        lines.append(f"📉 <b>RSI:</b> <code>{rsi:.1f}</code>")
-    lines.append(f"🏆 <b>{escape(winrate_line)}</b>")
+        lines.append(f"<b>RSI:</b> <code>{rsi:.1f}</code>")
+    lines.append(f"<b>{escape(winrate_line)}</b>")
     lines.extend(
         [
             "",
-            f"🎯 <b>Entry:</b> <code>{entry:.4f}</code>",
-            f"🛑 <b>Stop Loss:</b> <code>{sl:.4f}</code>",
-            f"🏁 <b>Take Profit:</b> <code>{tp:.4f}</code>",
+            f"<b>Entry:</b> <code>{entry:.4f}</code>",
+            f"<b>Stop Loss:</b> <code>{sl:.4f}</code>",
+            f"<b>Take Profit:</b> <code>{tp:.4f}</code>",
         ]
     )
     return "\n".join(lines)
@@ -227,9 +227,31 @@ def build_stats_message(started_at: datetime, total_signals: int, wins: int, tot
     win_rate = int(round((wins / max(1, total_closed)) * 100)) if total_closed else 0
     return (
         "<b>Trade AI Statistics</b>\n\n"
-        f"⏱ <b>Uptime:</b> <code>{escape(uptime_text)}</code>\n"
-        f"📨 <b>Total signals:</b> <code>{total_signals}</code>\n"
-        f"🏆 <b>Win rate:</b> <code>{wins}/{total_closed} ({win_rate}%)</code>\n"
+        f"<b>Uptime:</b> <code>{escape(uptime_text)}</code>\n"
+        f"<b>Total signals:</b> <code>{total_signals}</code>\n"
+        f"<b>Win rate:</b> <code>{wins}/{total_closed} ({win_rate}%)</code>\n"
+    )
+
+
+def build_validation_message(
+    ticker: str,
+    side: str,
+    outcome: str,
+    pnl_pct: float,
+    price_open: float,
+    price_now: float,
+    confidence: float,
+) -> str:
+    outcome_upper = (outcome or "").upper()
+    icon = "✅" if outcome_upper == "WIN" else "❌"
+    pnl_icon = "📈" if pnl_pct > 0 else "📉"
+    cash_icon = "💰" if pnl_pct > 0 else "💸"
+    sign = "+" if pnl_pct > 0 else ""
+    return (
+        f"{icon} {escape(outcome_upper)}: {escape((ticker or '').upper())} {escape((side or '').upper())}\n\n"
+        f"{pnl_icon} {sign}{pnl_pct:.1f}% (1 soat)\n"
+        f"{cash_icon} ${price_open:.2f} -> ${price_now:.2f}\n"
+        f"🎯 p={confidence:.2f}"
     )
 
 
@@ -242,10 +264,10 @@ def send_signal(text: str, signal_id: str, ticker: str) -> Tuple[int, str]:
         "reply_markup": {
             "inline_keyboard": [
                 [
-                    {"text": "✅ WIN", "callback_data": f"WIN:{signal_id}"},
-                    {"text": "❌ LOSS", "callback_data": f"LOSS:{signal_id}"},
+                    {"text": "WIN", "callback_data": f"WIN:{signal_id}"},
+                    {"text": "LOSS", "callback_data": f"LOSS:{signal_id}"},
                 ],
-                [{"text": "📊 TradingView", "url": tradingview_url(ticker)}],
+                [{"text": "TradingView", "url": tradingview_url(ticker)}],
             ]
         },
     }
@@ -256,6 +278,6 @@ class TelegramLogHandler(logging.Handler):
     def emit(self, record: logging.LogRecord) -> None:
         try:
             text = escape(self.format(record))
-            send_message(f"⚠️ <b>Trade AI Log</b>\n<code>{text}</code>")
+            send_message(f"<b>Trade AI Log</b>\n<code>{text}</code>")
         except Exception:
             return
