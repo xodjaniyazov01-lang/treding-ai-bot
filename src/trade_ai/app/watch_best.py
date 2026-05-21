@@ -10,7 +10,7 @@ from typing import Optional
 
 from trade_ai.config import settings
 from trade_ai.core.data_loader import fetch_entry_atr_rsi, read_watchlist
-from trade_ai.core.strategy import Prediction, calc_sl_tp, predict_market, read_threshold, test_log_line
+from trade_ai.core.strategy import Prediction, calc_sl_tp, get_model_status, predict_market, read_threshold, test_log_line
 from trade_ai.services.db import (
     get_meta,
     init_db,
@@ -157,7 +157,9 @@ def winrate_text(ticker: str) -> str:
 
 
 def log_prediction_details(now_str: str, predictions: list[Prediction]) -> None:
+    reason_counts: dict[str, int] = {}
     for prediction in predictions:
+        reason_counts[prediction.reason] = reason_counts.get(prediction.reason, 0) + 1
         logger.info("%s | [%s] data=%s", now_str, prediction.ticker, "FAIL" if prediction.reason == "data_error" else "OK")
         if settings.TEST_MODE:
             logger.info("%s | %s", now_str, test_log_line(prediction))
@@ -180,6 +182,9 @@ def log_prediction_details(now_str: str, predictions: list[Prediction]) -> None:
             prediction.reason,
             prediction.err or "-",
         )
+    if reason_counts:
+        summary = ", ".join(f"{key}={value}" for key, value in sorted(reason_counts.items()))
+        logger.info("%s | REASON_SUMMARY | %s", now_str, summary)
 
 
 def update_live_status(message_id: Optional[int], tf_label: str, cycle_no: int, step: str, detail: str, last_signal: str = "-", next_sleep_sec: Optional[int] = None) -> None:
@@ -220,10 +225,24 @@ def main() -> None:
     settings.DATA_DIR.mkdir(parents=True, exist_ok=True)
     settings.YF_CACHE_DIR.mkdir(parents=True, exist_ok=True)
     init_db()
+    model_status = get_model_status()
+    if model_status["loaded"]:
+        logger.info(
+            "MODEL STATUS | loaded=YES | type=%s | size_bytes=%d | path=%s",
+            model_status["model_type"],
+            model_status["size_bytes"],
+            model_status["path"],
+        )
+    else:
+        raise RuntimeError(
+            "Model load failed: "
+            f"path={model_status['path']} exists={model_status['exists']} error={model_status['error']}"
+        )
 
     total_scans = 0
     data_errors = 0
     low_proba_skips = 0
+    model_errors = 0
     signals_sent = 0
     cycle_no = 0
     sent_signals: set[str] = set()
@@ -309,9 +328,18 @@ def main() -> None:
             total_scans += len(predictions)
             cycle_data_errors = sum(1 for item in predictions if item.reason == "data_error")
             cycle_low_proba = sum(1 for item in predictions if item.reason == "low_proba")
+            cycle_model_errors = sum(1 for item in predictions if item.reason == "model_error")
             data_errors += cycle_data_errors
             low_proba_skips += cycle_low_proba
+            model_errors += cycle_model_errors
             maybe_adjust_threshold(data_error_ratio=(cycle_data_errors / max(1, len(predictions))) if predictions else None)
+            if cycle_model_errors:
+                logger.warning(
+                    "%s | MODEL HEALTH | model_error=%d/%d",
+                    now_str,
+                    cycle_model_errors,
+                    len(predictions),
+                )
 
             if cycle_data_errors >= 5:
                 logger.error(
@@ -484,6 +512,7 @@ def main() -> None:
                 f"TOTAL_SCANS={total_scans}\n"
                 f"DATA_ERRORS={data_errors}\n"
                 f"LOW_PROBA_SKIPS={low_proba_skips}\n"
+                f"MODEL_ERRORS={model_errors}\n"
                 f"SIGNALS_SENT={signals_sent}\n"
             )
             break

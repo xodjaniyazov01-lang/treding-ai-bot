@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 from functools import lru_cache
 from dataclasses import dataclass
+import logging
 from typing import Dict, List, Optional, Tuple
 
 import joblib
@@ -11,6 +12,8 @@ import pandas as pd
 from trade_ai.config import settings
 from trade_ai.core.data_loader import read_watchlist, yf_download_batch
 from trade_ai.utils.helpers import clamp, fmt_num, is_finite, safe_ascii
+
+logger = logging.getLogger("trade_ai.strategy")
 
 
 @dataclass
@@ -60,7 +63,32 @@ WIDE_ATR_PCT_BY_TF = {
 
 @lru_cache(maxsize=1)
 def load_prediction_model():
-    return joblib.load(settings.MODEL_PATH)
+    model = joblib.load(settings.MODEL_PATH)
+    logger.info(
+        "MODEL loaded path=%s type=%s",
+        settings.MODEL_PATH,
+        type(model).__name__,
+    )
+    return model
+
+
+def get_model_status() -> dict:
+    path = settings.MODEL_PATH
+    status = {
+        "path": str(path),
+        "exists": path.exists(),
+        "size_bytes": path.stat().st_size if path.exists() else 0,
+        "loaded": False,
+        "model_type": "",
+        "error": "",
+    }
+    try:
+        model = load_prediction_model()
+        status["loaded"] = True
+        status["model_type"] = type(model).__name__
+    except Exception as exc:
+        status["error"] = f"{type(exc).__name__}: {safe_ascii(exc)}"
+    return status
 
 
 def read_threshold(default: float = settings.DEFAULT_THRESHOLD) -> float:
