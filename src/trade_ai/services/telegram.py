@@ -15,6 +15,7 @@ from trade_ai.config import settings
 class BotEvents:
     selected_tf: Optional[str] = None
     stats_requests: int = 0
+    model_requests: int = 0
 
 
 def tg_api(method: str, data: dict) -> Tuple[int, str]:
@@ -137,6 +138,8 @@ def poll_updates(offset: int, valid_timeframes: Dict[str, tuple]) -> Tuple[int, 
         text = (message.get("text") or "").strip().lower()
         if text == "/stats":
             events.stats_requests += 1
+        elif text == "/model":
+            events.model_requests += 1
     return offset, events
 
 
@@ -144,7 +147,7 @@ def send_control_panel(tf_label: str) -> Tuple[int, str]:
     text = (
         "<b>Trade AI Control Panel</b>\n"
         f"Current TF: <b>{escape(tf_label)}</b>\n"
-        "Commands: <code>/stats</code>\n\n"
+        "Commands: <code>/stats</code> <code>/model</code>\n\n"
         "Tap to switch timeframe:"
     )
     return send_message(text, reply_markup=tf_keyboard())
@@ -230,6 +233,24 @@ def build_stats_message(started_at: datetime, total_signals: int, wins: int, tot
         f"<b>Uptime:</b> <code>{escape(uptime_text)}</code>\n"
         f"<b>Total signals:</b> <code>{total_signals}</code>\n"
         f"<b>Win rate:</b> <code>{wins}/{total_closed} ({win_rate}%)</code>\n"
+    )
+
+
+def build_model_status_message(model_status: dict) -> str:
+    loaded = "YES" if model_status.get("loaded") else "NO"
+    exists = "YES" if model_status.get("exists") else "NO"
+    model_type = escape(str(model_status.get("model_type") or "-"))
+    size_bytes = int(model_status.get("size_bytes") or 0)
+    path = escape(str(model_status.get("path") or "-"))
+    error = escape(str(model_status.get("error") or "-"))
+    return (
+        "<b>Trade AI Model Status</b>\n\n"
+        f"<b>Loaded:</b> <code>{loaded}</code>\n"
+        f"<b>Exists:</b> <code>{exists}</code>\n"
+        f"<b>Type:</b> <code>{model_type}</code>\n"
+        f"<b>Size:</b> <code>{size_bytes} bytes</code>\n"
+        f"<b>Path:</b> <code>{path}</code>\n"
+        f"<b>Error:</b> <code>{error}</code>\n"
     )
 
 

@@ -24,6 +24,7 @@ from trade_ai.services.db import (
 from trade_ai.services.telegram import (
     TelegramLogHandler,
     build_live_status_message,
+    build_model_status_message,
     build_signal_message,
     build_stats_message,
     build_validation_message,
@@ -212,6 +213,14 @@ def maybe_send_stats(started_at: datetime, requests_count: int) -> None:
         send_message(text)
 
 
+def maybe_send_model_status(requests_count: int) -> None:
+    if requests_count <= 0:
+        return
+    text = build_model_status_message(get_model_status())
+    for _ in range(requests_count):
+        send_message(text)
+
+
 def sltp_valid(entry: float, sl: float, tp: float, side: str) -> bool:
     side = (side or "").upper()
     if side == "BUY":
@@ -283,6 +292,7 @@ def main() -> None:
 
             update_offset, events = poll_updates(update_offset, settings.TF_MAP)
             maybe_send_stats(started_at, events.stats_requests)
+            maybe_send_model_status(events.model_requests)
             if events.selected_tf and events.selected_tf != tf_label:
                 tf_label = events.selected_tf
                 logger.info("%s | TF switched to %s", now_str, tf_label)
