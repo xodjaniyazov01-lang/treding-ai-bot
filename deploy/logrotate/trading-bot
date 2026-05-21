@@ -1,0 +1,10 @@
+/home/ubuntu/trading-ai-bot/data/logs/bot.log
+/home/ubuntu/trading-ai-bot/data/logs/bot.err.log
+{
+    daily
+    rotate 7
+    compress
+    missingok
+    notifempty
+    copytruncate
+}

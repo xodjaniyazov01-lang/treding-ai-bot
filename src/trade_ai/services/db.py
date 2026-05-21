@@ -79,9 +79,9 @@ def ensure_signal_schema(con: sqlite3.Connection) -> None:
         """
         UPDATE signals
         SET validation_outcome='PENDING'
-        WHERE status='OPEN'
-          AND validated_at IS NULL
-          AND (validation_outcome IS NULL OR validation_outcome = '');
+        WHERE validated_at IS NULL
+          AND (validation_outcome IS NULL OR validation_outcome = '')
+          AND price_at_signal IS NOT NULL;
         """
     )
 

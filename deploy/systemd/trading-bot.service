@@ -1,0 +1,18 @@
+[Unit]
+Description=Trading AI Bot (watch_best M15)
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/trading-ai-bot
+Environment=PYTHONPATH=src
+EnvironmentFile=/home/ubuntu/trading-ai-bot/.env
+ExecStart=/home/ubuntu/trading-ai-bot/venv/bin/python -m trade_ai.app.watch_best
+Restart=on-failure
+RestartSec=60
+StandardOutput=append:/home/ubuntu/trading-ai-bot/data/logs/bot.log
+StandardError=append:/home/ubuntu/trading-ai-bot/data/logs/bot.err.log
+
+[Install]
+WantedBy=multi-user.target

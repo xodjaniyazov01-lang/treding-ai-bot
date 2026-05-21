@@ -8,6 +8,17 @@ def clamp(value: float, lower: float, upper: float) -> float:
     return max(lower, min(upper, float(value)))
 
 
+def parse_bool(raw: object, default: bool = False) -> bool:
+    if raw is None:
+        return default
+    text = str(raw).strip().lower()
+    if text in {"1", "true", "yes", "y", "on"}:
+        return True
+    if text in {"0", "false", "no", "n", "off"}:
+        return False
+    return default
+
+
 def parse_float(raw: object, default: Optional[float] = None) -> Optional[float]:
     try:
         return float(raw)

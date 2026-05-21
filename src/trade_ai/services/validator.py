@@ -32,14 +32,14 @@ def validate_pending(db_path: str | Path | None = None) -> List[Dict[str, Any]]:
     cutoff_ts = now_ts - CHECK_AFTER_SECONDS
     now_iso = datetime.utcnow().isoformat()
 
-    conn = sqlite3.connect(str(path))
+    conn = sqlite3.connect(str(path), timeout=30)
+    conn.execute("PRAGMA busy_timeout=30000;")
     try:
         rows = conn.execute(
             """
             SELECT id, ticker, side, p, ts, entry, price_at_signal
             FROM signals
-            WHERE status='OPEN'
-              AND validated_at IS NULL
+            WHERE validated_at IS NULL
               AND validation_outcome='PENDING'
               AND ts <= ?
             ORDER BY ts ASC;

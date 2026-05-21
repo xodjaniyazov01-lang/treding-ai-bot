@@ -243,15 +243,12 @@ def build_validation_message(
     confidence: float,
 ) -> str:
     outcome_upper = (outcome or "").upper()
-    icon = "✅" if outcome_upper == "WIN" else "❌"
-    pnl_icon = "📈" if pnl_pct > 0 else "📉"
-    cash_icon = "💰" if pnl_pct > 0 else "💸"
     sign = "+" if pnl_pct > 0 else ""
     return (
-        f"{icon} {escape(outcome_upper)}: {escape((ticker or '').upper())} {escape((side or '').upper())}\n\n"
-        f"{pnl_icon} {sign}{pnl_pct:.1f}% (1 soat)\n"
-        f"{cash_icon} ${price_open:.2f} -> ${price_now:.2f}\n"
-        f"🎯 p={confidence:.2f}"
+        f"<b>{escape(outcome_upper)}</b>: {escape((ticker or '').upper())} {escape((side or '').upper())}\n\n"
+        f"<b>PnL:</b> {sign}{pnl_pct:.1f}% (1 soat)\n"
+        f"<b>Price:</b> ${price_open:.2f} -> ${price_now:.2f}\n"
+        f"<b>Confidence:</b> p={confidence:.2f}"
     )
 
 

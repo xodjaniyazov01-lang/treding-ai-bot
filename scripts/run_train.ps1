@@ -1,3 +1,3 @@
 $env:PYTHONPATH = "src"
 $env:PYTHONIOENCODING = "utf-8"
-python -m trade_ai.app.trainer
+py -3.14 -m trade_ai.app.trainer

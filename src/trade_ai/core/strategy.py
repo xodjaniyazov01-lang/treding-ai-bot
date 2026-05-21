@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import math
+from functools import lru_cache
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
+
+import joblib
+import pandas as pd
 
 from trade_ai.config import settings
 from trade_ai.core.data_loader import read_watchlist, yf_download_batch
@@ -52,6 +56,11 @@ WIDE_ATR_PCT_BY_TF = {
     "H1": 0.0120,
     "H4": 0.0180,
 }
+
+
+@lru_cache(maxsize=1)
+def load_prediction_model():
+    return joblib.load(settings.MODEL_PATH)
 
 
 def read_threshold(default: float = settings.DEFAULT_THRESHOLD) -> float:
@@ -186,6 +195,8 @@ def get_market_context() -> MarketContext:
             if vix == vix:
                 ctx.vix = vix
                 ctx.vix_high = vix > settings.VIX_HIGH_THRESHOLD
+        else:
+            ctx.err = "vix_missing"
     except Exception as exc:
         ctx.err = f"vix_err={safe_ascii(exc)}"
     try:
@@ -203,6 +214,9 @@ def get_market_context() -> MarketContext:
                     ctx.spy_ema50 = spy_ema50
                     ctx.spy_ema200 = spy_ema200
                     ctx.spy_bear = (spy_close < spy_ema50) and (spy_close < spy_ema200)
+        else:
+            suffix = "spy_missing"
+            ctx.err = f"{ctx.err} | {suffix}" if ctx.err else suffix
     except Exception as exc:
         suffix = f"spy_err={safe_ascii(exc)}"
         ctx.err = f"{ctx.err} | {suffix}" if ctx.err else suffix
@@ -226,31 +240,108 @@ def trend_vs_ema50(df) -> Optional[str]:
         return None
 
 
-def core_signal(df) -> Tuple[str, float, str]:
+def infer_side(df) -> Tuple[str, str]:
     close = df["Close"].astype(float)
     fast = ema(close, 9)
     slow = ema(close, 21)
-    last_close = float(close.iloc[-1])
     last_fast = float(fast.iloc[-1]) if fast is not None else float("nan")
     last_slow = float(slow.iloc[-1]) if slow is not None else float("nan")
     rsi_value = rsi14(close)
     rsi_num = float(rsi_value) if rsi_value is not None else float("nan")
-    ema_diff_pct = 0.0
-    if last_close == last_close and last_close != 0 and last_fast == last_fast and last_slow == last_slow:
-        ema_diff_pct = (last_fast - last_slow) / last_close * 100.0
-    rsi_term = 0.0
-    if rsi_num == rsi_num:
-        rsi_term = (rsi_num - 50.0) / 8.0
-    score = (ema_diff_pct * 1.8) + rsi_term
-    proba = clamp(sigmoid(score), 0.0, 1.0)
-    bull = last_fast > last_slow and rsi_num == rsi_num and rsi_num >= 52
-    bear = last_fast < last_slow and rsi_num == rsi_num and rsi_num <= 48
-    strong = abs(score) >= 1.25
-    if bull and not bear:
-        return ("STRONG_BUY" if strong else "BUY"), proba, "BUY"
-    if bear and not bull:
-        return ("STRONG_SELL" if strong else "SELL"), proba, "SELL"
-    return "HOLD", min(proba, 0.55), "BUY"
+    if last_fast == last_fast and last_slow == last_slow and last_fast > last_slow and rsi_num == rsi_num and rsi_num >= 52:
+        return "BUY", "trend_bull"
+    if last_fast == last_fast and last_slow == last_slow and last_fast < last_slow and rsi_num == rsi_num and rsi_num <= 48:
+        return "SELL", "trend_bear"
+    return "BUY", "trend_flat"
+
+
+def detect_volume_spike(df) -> int:
+    try:
+        volume = df["Volume"].astype(float)
+        if len(volume) < 20:
+            return 0
+        current = float(volume.iloc[-1])
+        base = float(volume.rolling(20).mean().iloc[-2])
+        if base <= 0:
+            return 0
+        return int(current > (base * 1.5))
+    except Exception:
+        return 0
+
+
+def detect_pattern_name(side: str, squeeze_now: bool, breakout: str, is_consolidation: int, trend_align: int) -> str:
+    side = (side or "").upper()
+    if side == "BUY":
+        if breakout == "UP" and squeeze_now:
+            return "bull_pennant"
+        if breakout == "UP":
+            return "bull_flag"
+        if is_consolidation:
+            return "range_breakout"
+        if trend_align:
+            return "ascending_triangle"
+        return "double_bottom"
+    if breakout == "DOWN" and squeeze_now:
+        return "bear_pennant"
+    if breakout == "DOWN":
+        return "head_shoulders"
+    if is_consolidation:
+        return "range_breakout"
+    if trend_align:
+        return "descending_triangle"
+    return "double_top"
+
+
+def build_feature_row(df_small, df_h1, df_d1, squeeze_now: bool, breakout: str) -> dict:
+    close = df_small["Close"].astype(float)
+    last_close = float(close.iloc[-1])
+    ema20 = ema(close, 20)
+    close_vs_ema = int(ema20 is not None and float(ema20.iloc[-1]) == float(ema20.iloc[-1]) and last_close > float(ema20.iloc[-1]))
+    rsi_value = rsi14(close)
+    rsi_num = float(rsi_value) if rsi_value is not None else 50.0
+    atr_data = atr14_series(df_small)
+    atr_last = None
+    if atr_data is not None:
+        try:
+            atr_last = float(atr_data.iloc[-1])
+        except Exception:
+            atr_last = None
+    atr_ratio = float(atr_last / last_close) if is_finite(atr_last) and is_finite(last_close) and last_close > 0 else 0.0
+    st_3m = 1 if (trend_vs_ema50(df_small) or "DOWN") == "UP" else 0
+    st_1h = 1 if (trend_vs_ema50(df_h1) or "DOWN") == "UP" else 0
+    st_4h = 1 if (trend_vs_ema50(df_d1) or "DOWN") == "UP" else 0
+    trend_align = int(st_1h == st_4h)
+    is_consolidation = int(atr_ratio < 0.0025)
+    side, _ = infer_side(df_small)
+    pattern_name = detect_pattern_name(side, squeeze_now, breakout, is_consolidation, trend_align)
+    return {
+        "pattern_name": pattern_name,
+        "side": side,
+        "st_3m": st_3m,
+        "st_1h": st_1h,
+        "st_4h": st_4h,
+        "trend_align": trend_align,
+        "is_consolidation": is_consolidation,
+        "breakout": int(breakout in ("UP", "DOWN")),
+        "volume_spike": detect_volume_spike(df_small),
+        "neckline_break": int(breakout in ("UP", "DOWN")),
+        "atr_ratio": atr_ratio,
+        "rsi": rsi_num if rsi_num == rsi_num else 50.0,
+        "close_vs_ema": close_vs_ema,
+    }
+
+
+def core_signal(feature_row: dict) -> Tuple[str, float, str]:
+    model = load_prediction_model()
+    feature_frame = pd.DataFrame([feature_row], columns=settings.PATTERN_FEATURES)
+    proba = float(model.predict_proba(feature_frame)[0][1])
+    side = str(feature_row["side"]).upper()
+    strong_threshold = max(0.85, read_threshold() + 0.15)
+    if proba >= strong_threshold:
+        return (f"STRONG_{side}", proba, side)
+    if proba >= read_threshold():
+        return side, proba, side
+    return "HOLD", proba, side
 
 
 def calc_sl_tp(entry: float, atr: float, side: str) -> Tuple[float, float]:
@@ -348,7 +439,14 @@ def predict_market(tf_label: str, tickers: Optional[List[str]] = None) -> List[P
             continue
 
         try:
-            signal, proba, side = core_signal(df_small)
+            feature_row = build_feature_row(
+                df_small=df_small,
+                df_h1=h1_map.get(ticker),
+                df_d1=d1_map.get(ticker),
+                squeeze_now=squeeze_now,
+                breakout=breakout,
+            )
+            signal, proba, side = core_signal(feature_row)
         except Exception as exc:
             predictions.append(Prediction(ticker, "HOLD", 0.50, threshold, "BUY", "model_error", safe_ascii(type(exc).__name__), entry=entry, atr=atr_last, squeeze=squeeze_now, breakout=breakout))
             continue

@@ -1,0 +1,5 @@
+# Stock tickers: weekdays, every hour during market hours
+0 9-18 * * 1-5 cd /path/to/trading-ai-bot && flock -n /tmp/trading-bot.lock env PYTHONPATH=src /path/to/venv/bin/python -m trade_ai.app.watch_best >> data/logs/bot.log 2>> data/logs/bot.err.log
+
+# BTC-USD: every 4 hours, every day
+# 0 */4 * * * cd /path/to/trading-ai-bot && flock -n /tmp/trading-bot.lock env PYTHONPATH=src /path/to/venv/bin/python -m trade_ai.app.watch_best >> data/logs/bot.log 2>> data/logs/bot.err.log

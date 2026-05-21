@@ -2,7 +2,9 @@
 .idea/
 __pycache__/
 *.py[cod]
+*.err.log
 
 data/signals_history.db
 data/watch_state.json
 data/yf_cache/
+data/logs/
