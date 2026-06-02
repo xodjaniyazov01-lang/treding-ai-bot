@@ -188,7 +188,35 @@ def log_prediction_details(now_str: str, predictions: list[Prediction]) -> None:
         logger.info("%s | REASON_SUMMARY | %s", now_str, summary)
 
 
-def update_live_status(message_id: Optional[int], tf_label: str, cycle_no: int, step: str, detail: str, last_signal: str = "-", next_sleep_sec: Optional[int] = None) -> None:
+def runtime_metrics(
+    total_scans: int,
+    data_errors: int,
+    low_proba_skips: int,
+    model_errors: int,
+    signals_sent: int,
+    validated_count: int = 0,
+) -> dict:
+    return {
+        "total_scans": total_scans,
+        "data_errors": data_errors,
+        "low_proba_skips": low_proba_skips,
+        "model_errors": model_errors,
+        "signals_sent": signals_sent,
+        "validated_count": validated_count,
+        "threshold": read_threshold(),
+    }
+
+
+def update_live_status(
+    message_id: Optional[int],
+    tf_label: str,
+    cycle_no: int,
+    step: str,
+    detail: str,
+    last_signal: str = "-",
+    next_sleep_sec: Optional[int] = None,
+    metrics: Optional[dict] = None,
+) -> None:
     if not message_id:
         return
     text = build_live_status_message(
@@ -198,17 +226,18 @@ def update_live_status(message_id: Optional[int], tf_label: str, cycle_no: int, 
         detail=detail,
         last_signal=last_signal,
         next_sleep_sec=next_sleep_sec,
+        metrics=metrics,
     )
     code, response = edit_message(message_id, text)
     if code not in (0, 200):
         logger.warning("Live status edit failed: %s", response)
 
 
-def maybe_send_stats(started_at: datetime, requests_count: int) -> None:
+def maybe_send_stats(started_at: datetime, requests_count: int, metrics: Optional[dict] = None) -> None:
     if requests_count <= 0:
         return
     total_signals, wins, total_closed = stats_summary()
-    text = build_stats_message(started_at, total_signals, wins, total_closed)
+    text = build_stats_message(started_at, total_signals, wins, total_closed, metrics=metrics)
     for _ in range(requests_count):
         send_message(text)
 
@@ -217,6 +246,22 @@ def maybe_send_model_status(requests_count: int) -> None:
     if requests_count <= 0:
         return
     text = build_model_status_message(get_model_status())
+    for _ in range(requests_count):
+        send_message(text)
+
+
+def maybe_send_health(tf_label: str, cycle_no: int, requests_count: int, last_signal: str, metrics: dict) -> None:
+    if requests_count <= 0:
+        return
+    text = build_live_status_message(
+        step="Health",
+        tf_label=tf_label,
+        cycle_no=cycle_no,
+        detail="Runtime monitoring snapshot",
+        last_signal=last_signal,
+        next_sleep_sec=settings.SLEEP_SEC,
+        metrics=metrics,
+    )
     for _ in range(requests_count):
         send_message(text)
 
@@ -253,6 +298,7 @@ def main() -> None:
     low_proba_skips = 0
     model_errors = 0
     signals_sent = 0
+    validated_count = 0
     cycle_no = 0
     sent_signals: set[str] = set()
     started_at = datetime.now()
@@ -291,8 +337,10 @@ def main() -> None:
             today = now_dt.date().isoformat()
 
             update_offset, events = poll_updates(update_offset, settings.TF_MAP)
-            maybe_send_stats(started_at, events.stats_requests)
+            metrics = runtime_metrics(total_scans, data_errors, low_proba_skips, model_errors, signals_sent, validated_count)
+            maybe_send_stats(started_at, events.stats_requests, metrics=metrics)
             maybe_send_model_status(events.model_requests)
+            maybe_send_health(tf_label, cycle_no, events.health_requests, last_signal_label, metrics)
             if events.selected_tf and events.selected_tf != tf_label:
                 tf_label = events.selected_tf
                 logger.info("%s | TF switched to %s", now_str, tf_label)
@@ -305,9 +353,11 @@ def main() -> None:
                 last_key = ""
                 last_time = 0.0
 
-            update_live_status(status_message_id, tf_label, cycle_no, "Skanerlanmoqda", "Ochiq signallar tekshirilyapti", last_signal_label)
+            metrics = runtime_metrics(total_scans, data_errors, low_proba_skips, model_errors, signals_sent, validated_count)
+            update_live_status(status_message_id, tf_label, cycle_no, "Skanerlanmoqda", "Ochiq signallar tekshirilyapti", last_signal_label, metrics=metrics)
             update_open_signal_outcomes(limit=50)
             validation_results = validate_pending()
+            validated_count += len(validation_results)
             for result in validation_results:
                 send_message(
                     build_validation_message(
@@ -331,6 +381,7 @@ def main() -> None:
                 "Analiz qilinmoqda",
                 f"{len(tickers)} ta ticker baholanmoqda",
                 last_signal_label,
+                metrics=runtime_metrics(total_scans, data_errors, low_proba_skips, model_errors, signals_sent, validated_count),
             )
             predictions = predict_market(tf_label, tickers)
             log_prediction_details(now_str, predictions)
@@ -367,6 +418,7 @@ def main() -> None:
                     f"{cycle_data_errors} ta ticker data bermadi, signal to'xtatildi",
                     last_signal_label,
                     next_sleep_sec=settings.SLEEP_SEC,
+                    metrics=runtime_metrics(total_scans, data_errors, low_proba_skips, model_errors, signals_sent, validated_count),
                 )
                 save_state(
                     {
@@ -411,7 +463,16 @@ def main() -> None:
                 if best is None:
                     if settings.TEST_MODE:
                         logger.info("%s | [TEST MODE] No signal -> forcing fallback failed", now_str)
-                    update_live_status(status_message_id, tf_label, cycle_no, "Yakunlandi", detail, last_signal_label, next_sleep_sec=settings.SLEEP_SEC)
+                    update_live_status(
+                        status_message_id,
+                        tf_label,
+                        cycle_no,
+                        "Yakunlandi",
+                        detail,
+                        last_signal_label,
+                        next_sleep_sec=settings.SLEEP_SEC,
+                        metrics=runtime_metrics(total_scans, data_errors, low_proba_skips, model_errors, signals_sent, validated_count),
+                    )
                     save_state(
                         {
                             "tf_label": tf_label,
@@ -427,7 +488,16 @@ def main() -> None:
             side = (best.side or "").upper()
             if side not in ("BUY", "SELL"):
                 logger.warning("%s | BEST=%s INVALID_SIDE=%s", now_str, best.ticker, best.side)
-                update_live_status(status_message_id, tf_label, cycle_no, "Yakunlandi", f"{best.ticker} uchun side noto'g'ri", last_signal_label, next_sleep_sec=settings.SLEEP_SEC)
+                update_live_status(
+                    status_message_id,
+                    tf_label,
+                    cycle_no,
+                    "Yakunlandi",
+                    f"{best.ticker} uchun side noto'g'ri",
+                    last_signal_label,
+                    next_sleep_sec=settings.SLEEP_SEC,
+                    metrics=runtime_metrics(total_scans, data_errors, low_proba_skips, model_errors, signals_sent, validated_count),
+                )
                 time.sleep(settings.SLEEP_SEC)
                 continue
 
@@ -435,30 +505,74 @@ def main() -> None:
             entry, atr14, rsi = fetch_entry_atr_rsi(best.ticker, interval=interval, period=period)
             if entry is None or atr14 is None or atr14 <= 0:
                 logger.warning("%s | BEST=%s data_error (no ATR/entry)", now_str, best.ticker)
-                update_live_status(status_message_id, tf_label, cycle_no, "Yakunlandi", f"{best.ticker} uchun market data yetarli emas", last_signal_label, next_sleep_sec=settings.SLEEP_SEC)
+                update_live_status(
+                    status_message_id,
+                    tf_label,
+                    cycle_no,
+                    "Yakunlandi",
+                    f"{best.ticker} uchun market data yetarli emas",
+                    last_signal_label,
+                    next_sleep_sec=settings.SLEEP_SEC,
+                    metrics=runtime_metrics(total_scans, data_errors, low_proba_skips, model_errors, signals_sent, validated_count),
+                )
                 time.sleep(settings.SLEEP_SEC)
                 continue
 
             sl, tp = calc_sl_tp(entry, atr14, side)
             if not sltp_valid(entry, sl, tp, side):
                 logger.warning("%s | invalid_levels ticker=%s side=%s entry=%.4f sl=%.4f tp=%.4f", now_str, best.ticker, side, entry, sl, tp)
-                update_live_status(status_message_id, tf_label, cycle_no, "Yakunlandi", f"{best.ticker} uchun SL/TP noto'g'ri", last_signal_label, next_sleep_sec=settings.SLEEP_SEC)
+                update_live_status(
+                    status_message_id,
+                    tf_label,
+                    cycle_no,
+                    "Yakunlandi",
+                    f"{best.ticker} uchun SL/TP noto'g'ri",
+                    last_signal_label,
+                    next_sleep_sec=settings.SLEEP_SEC,
+                    metrics=runtime_metrics(total_scans, data_errors, low_proba_skips, model_errors, signals_sent, validated_count),
+                )
                 time.sleep(settings.SLEEP_SEC)
                 continue
 
             dedupe_key = f"{best.ticker}:{side}:{tf_label}"
             if dedupe_key in sent_signals:
                 logger.info("%s | DUPLICATE skip (set) %s", now_str, dedupe_key)
-                update_live_status(status_message_id, tf_label, cycle_no, "Yakunlandi", "Takroriy signal yuborilmadi", last_signal_label, next_sleep_sec=settings.SLEEP_SEC)
+                update_live_status(
+                    status_message_id,
+                    tf_label,
+                    cycle_no,
+                    "Yakunlandi",
+                    "Takroriy signal yuborilmadi",
+                    last_signal_label,
+                    next_sleep_sec=settings.SLEEP_SEC,
+                    metrics=runtime_metrics(total_scans, data_errors, low_proba_skips, model_errors, signals_sent, validated_count),
+                )
                 time.sleep(settings.SLEEP_SEC)
                 continue
             if dedupe_key == last_key and (time.time() - last_time) < settings.DUPLICATE_TTL_SEC:
                 logger.info("%s | DUPLICATE skip (ttl) %s", now_str, dedupe_key)
-                update_live_status(status_message_id, tf_label, cycle_no, "Yakunlandi", "TTL ichida bir xil signal qayta yuborilmadi", last_signal_label, next_sleep_sec=settings.SLEEP_SEC)
+                update_live_status(
+                    status_message_id,
+                    tf_label,
+                    cycle_no,
+                    "Yakunlandi",
+                    "TTL ichida bir xil signal qayta yuborilmadi",
+                    last_signal_label,
+                    next_sleep_sec=settings.SLEEP_SEC,
+                    metrics=runtime_metrics(total_scans, data_errors, low_proba_skips, model_errors, signals_sent, validated_count),
+                )
                 time.sleep(settings.SLEEP_SEC)
                 continue
 
-            update_live_status(status_message_id, tf_label, cycle_no, "Saqlanmoqda", f"{best.ticker} signal Telegram va bazaga yozilyapti", last_signal_label)
+            update_live_status(
+                status_message_id,
+                tf_label,
+                cycle_no,
+                "Saqlanmoqda",
+                f"{best.ticker} signal Telegram va bazaga yozilyapti",
+                last_signal_label,
+                metrics=runtime_metrics(total_scans, data_errors, low_proba_skips, model_errors, signals_sent, validated_count),
+            )
             signal_id = str(uuid.uuid4())[:8]
             message = build_signal_message(
                 ticker=best.ticker,
@@ -514,6 +628,7 @@ def main() -> None:
                 f"Cycle tugadi. Sent={signals_sent}, scans={total_scans}",
                 last_signal_label,
                 next_sleep_sec=settings.SLEEP_SEC,
+                metrics=runtime_metrics(total_scans, data_errors, low_proba_skips, model_errors, signals_sent, validated_count),
             )
             time.sleep(settings.SLEEP_SEC)
         except KeyboardInterrupt:
@@ -536,6 +651,7 @@ def main() -> None:
                 f"{type(exc).__name__}: {exc}",
                 last_signal_label,
                 next_sleep_sec=10,
+                metrics=runtime_metrics(total_scans, data_errors, low_proba_skips, model_errors, signals_sent, validated_count),
             )
             time.sleep(10)
 

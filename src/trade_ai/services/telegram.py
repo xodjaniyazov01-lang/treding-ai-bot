@@ -16,6 +16,7 @@ class BotEvents:
     selected_tf: Optional[str] = None
     stats_requests: int = 0
     model_requests: int = 0
+    health_requests: int = 0
 
 
 def tg_api(method: str, data: dict) -> Tuple[int, str]:
@@ -140,6 +141,8 @@ def poll_updates(offset: int, valid_timeframes: Dict[str, tuple]) -> Tuple[int, 
             events.stats_requests += 1
         elif text == "/model":
             events.model_requests += 1
+        elif text in ("/health", "/dashboard"):
+            events.health_requests += 1
     return offset, events
 
 
@@ -147,7 +150,7 @@ def send_control_panel(tf_label: str) -> Tuple[int, str]:
     text = (
         "<b>Trade AI Control Panel</b>\n"
         f"Current TF: <b>{escape(tf_label)}</b>\n"
-        "Commands: <code>/stats</code> <code>/model</code>\n\n"
+        "Commands: <code>/stats</code> <code>/model</code> <code>/health</code>\n\n"
         "Tap to switch timeframe:"
     )
     return send_message(text, reply_markup=tf_keyboard())
@@ -209,9 +212,17 @@ def build_signal_message(
     return "\n".join(lines)
 
 
-def build_live_status_message(step: str, tf_label: str, cycle_no: int, detail: str, last_signal: str = "-", next_sleep_sec: Optional[int] = None) -> str:
+def build_live_status_message(
+    step: str,
+    tf_label: str,
+    cycle_no: int,
+    detail: str,
+    last_signal: str = "-",
+    next_sleep_sec: Optional[int] = None,
+    metrics: Optional[dict] = None,
+) -> str:
     lines = [
-        "<b>Trade AI Live Status</b>",
+        "<b>Trade AI Monitor</b>",
         "",
         f"Stage: <b>{escape(step)}</b>",
         f"TF: <b>{escape(tf_label)}</b>",
@@ -219,21 +230,49 @@ def build_live_status_message(step: str, tf_label: str, cycle_no: int, detail: s
         f"Last signal: <code>{escape(last_signal)}</code>",
         f"Detail: {escape(detail)}",
     ]
+    if metrics:
+        lines.extend(
+            [
+                "",
+                "<b>Runtime</b>",
+                f"Scans: <code>{int(metrics.get('total_scans', 0))}</code>",
+                f"Sent: <code>{int(metrics.get('signals_sent', 0))}</code>",
+                f"Data errors: <code>{int(metrics.get('data_errors', 0))}</code>",
+                f"Low proba skips: <code>{int(metrics.get('low_proba_skips', 0))}</code>",
+                f"Model errors: <code>{int(metrics.get('model_errors', 0))}</code>",
+                f"Validated: <code>{int(metrics.get('validated_count', 0))}</code>",
+                f"Threshold: <code>{float(metrics.get('threshold', 0.0)):.2f}</code>",
+            ]
+        )
     if next_sleep_sec is not None:
         lines.append(f"Next scan: <code>{int(next_sleep_sec)}s</code>")
     lines.append(f"Updated: <code>{escape(datetime.now().strftime('%Y-%m-%d %H:%M:%S'))}</code>")
     return "\n".join(lines)
 
 
-def build_stats_message(started_at: datetime, total_signals: int, wins: int, total_closed: int) -> str:
+def build_stats_message(started_at: datetime, total_signals: int, wins: int, total_closed: int, metrics: Optional[dict] = None) -> str:
     uptime_text = str(datetime.now() - started_at).split(".", 1)[0]
     win_rate = int(round((wins / max(1, total_closed)) * 100)) if total_closed else 0
-    return (
+    lines = [
         "<b>Trade AI Statistics</b>\n\n"
-        f"<b>Uptime:</b> <code>{escape(uptime_text)}</code>\n"
-        f"<b>Total signals:</b> <code>{total_signals}</code>\n"
-        f"<b>Win rate:</b> <code>{wins}/{total_closed} ({win_rate}%)</code>\n"
-    )
+        f"<b>Uptime:</b> <code>{escape(uptime_text)}</code>",
+        f"<b>Total signals:</b> <code>{total_signals}</code>",
+        f"<b>Win rate:</b> <code>{wins}/{total_closed} ({win_rate}%)</code>",
+    ]
+    if metrics:
+        lines.extend(
+            [
+                "",
+                "<b>Runtime</b>",
+                f"Scans: <code>{int(metrics.get('total_scans', 0))}</code>",
+                f"Sent this run: <code>{int(metrics.get('signals_sent', 0))}</code>",
+                f"Data errors: <code>{int(metrics.get('data_errors', 0))}</code>",
+                f"Low proba skips: <code>{int(metrics.get('low_proba_skips', 0))}</code>",
+                f"Model errors: <code>{int(metrics.get('model_errors', 0))}</code>",
+                f"Threshold: <code>{float(metrics.get('threshold', 0.0)):.2f}</code>",
+            ]
+        )
+    return "\n".join(lines) + "\n"
 
 
 def build_model_status_message(model_status: dict) -> str:
