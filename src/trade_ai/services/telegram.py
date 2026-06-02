@@ -92,6 +92,7 @@ def tf_keyboard() -> dict:
                 {"text": "H1", "callback_data": "TF:H1"},
                 {"text": "H4", "callback_data": "TF:H4"},
             ],
+            [{"text": "Monitor", "callback_data": "HEALTH"}],
         ]
     }
 
@@ -129,6 +130,11 @@ def poll_updates(offset: int, valid_timeframes: Dict[str, tuple]) -> Tuple[int, 
                 events.selected_tf = tf_label
                 if callback_id:
                     answer_callback(callback_id, f"Timeframe set: {tf_label}")
+            continue
+        if callback_data == "HEALTH":
+            events.health_requests += 1
+            if callback_id:
+                answer_callback(callback_id, "Monitoring yuborildi")
             continue
         if callback_data.startswith("WIN:") or callback_data.startswith("LOSS:"):
             if callback_id:
