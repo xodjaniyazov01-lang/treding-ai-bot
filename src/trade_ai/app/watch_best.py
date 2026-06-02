@@ -446,7 +446,7 @@ def main() -> None:
                 time.sleep(settings.SLEEP_SEC)
                 continue
 
-            dedupe_key = f"{best.ticker}:{best.signal}:{round(best.p, 4)}:{tf_label}"
+            dedupe_key = f"{best.ticker}:{side}:{tf_label}"
             if dedupe_key in sent_signals:
                 logger.info("%s | DUPLICATE skip (set) %s", now_str, dedupe_key)
                 update_live_status(status_message_id, tf_label, cycle_no, "Yakunlandi", "Takroriy signal yuborilmadi", last_signal_label, next_sleep_sec=settings.SLEEP_SEC)
@@ -542,3 +542,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

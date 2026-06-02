@@ -4,7 +4,7 @@ Signal bot entrypoint:
 
 ```powershell
 $env:PYTHONPATH = "src"
-py -3.14 -m trade_ai.app.watch_best
+py -3.11 -m trade_ai.app.watch_best
 ```
 
 ## Environment
@@ -15,7 +15,7 @@ Key runtime flags:
 
 - `TEST_MODE=False` for production
 - `TEST_TICKERS=` only used when `TEST_MODE=True`
-- `DEFAULT_THRESHOLD=0.60`
+- `DEFAULT_THRESHOLD=0.70`
 - `SLEEP_SEC=60`
 
 ## Production
@@ -92,7 +92,7 @@ Check the active threshold:
 cat data/threshold.txt
 ```
 
-Current target threshold is `0.60`. Review date: `2026-05-08`.
+Current target threshold is `0.70`. Review date: `2026-06-02`.
 
 ## Railway
 
@@ -112,7 +112,7 @@ Set these Railway Variables:
 - `BOT_TOKEN`
 - `CHAT_ID`
 - `TEST_MODE=False`
-- `DEFAULT_THRESHOLD=0.60`
+- `DEFAULT_THRESHOLD=0.70`
 - `THRESHOLD_MAX=0.75`
 - `PYTHONPATH=src`
 - `SLEEP_SEC=60`
@@ -128,7 +128,7 @@ Notes:
 
 ```powershell
 $env:PYTHONPATH = "src"
-py -3.14 -m trade_ai.app.trainer
+py -3.11 -m trade_ai.app.trainer
 ```
 
 ## Storage
@@ -139,3 +139,4 @@ py -3.14 -m trade_ai.app.trainer
 - `data/watch_state.json`: runtime state
 - `data/yf_cache/`: cached market data
 - `data/logs/`: runtime logs
+

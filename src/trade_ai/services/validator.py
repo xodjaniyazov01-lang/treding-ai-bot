@@ -60,10 +60,13 @@ def validate_pending(db_path: str | Path | None = None) -> List[Dict[str, Any]]:
                 continue
 
             side_upper = str(side or "").upper()
-            if side_upper in ("BUY", "STRONG_BUY"):
+            if "BUY" in side_upper:
                 pnl_pct = ((price_now - price_open) / price_open) * 100.0
-            else:
+            elif "SELL" in side_upper:
                 pnl_pct = ((price_open - price_now) / price_open) * 100.0
+            else:
+                logger.warning("Validator skipped %s: unsupported side %s", signal_id, side)
+                continue
             validation_outcome = "WIN" if pnl_pct > 0 else "LOSS"
 
             conn.execute(
@@ -103,3 +106,4 @@ def validate_pending(db_path: str | Path | None = None) -> List[Dict[str, Any]]:
         return results
     finally:
         conn.close()
+

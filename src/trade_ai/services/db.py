@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 import time
+from datetime import datetime
 from typing import Optional, Tuple
 
 from trade_ai.config import settings
@@ -224,10 +225,28 @@ def stats_summary() -> Tuple[int, int, int]:
     return total_signals, wins, total_closed
 
 
-def decide_outcome(side: str, sl: float, tp: float, df) -> Optional[Tuple[str, int, float]]:
+def filter_after_signal(df, signal_ts: int):
+    if df is None or getattr(df, "empty", False) or not signal_ts:
+        return df
+    try:
+        index = df.index
+        if hasattr(index, "tz") and index.tz is not None:
+            signal_dt = datetime.fromtimestamp(int(signal_ts), tz=index.tz)
+        else:
+            signal_dt = datetime.fromtimestamp(int(signal_ts))
+        filtered = df[index >= signal_dt]
+        return filtered if not getattr(filtered, "empty", False) else None
+    except Exception:
+        return df
+
+
+def decide_outcome(side: str, sl: float, tp: float, df, signal_ts: int = 0) -> Optional[Tuple[str, int, float]]:
     if df is None or getattr(df, "empty", False):
         return None
     if not all(col in df.columns for col in ("High", "Low", "Close")):
+        return None
+    df = filter_after_signal(df, signal_ts)
+    if df is None or getattr(df, "empty", False):
         return None
     side = (side or "").upper()
     for _, row in df.iterrows():
@@ -252,11 +271,12 @@ def decide_outcome(side: str, sl: float, tp: float, df) -> Optional[Tuple[str, i
 
 
 def update_open_signal_outcomes(limit: int = 50) -> None:
-    for sig_id, _ts, ticker, side, interval, _entry, sl, tp in get_open_signals(limit=limit):
+    for sig_id, ts, ticker, side, interval, _entry, sl, tp in get_open_signals(limit=limit):
         try:
             df = yf_download_safe(ticker, period="7d", interval=interval, min_rows=10, retries=2)
-            outcome = decide_outcome(side, float(sl), float(tp), df)
+            outcome = decide_outcome(side, float(sl), float(tp), df, signal_ts=int(ts or 0))
             if outcome:
                 close_signal(sig_id, outcome[0], outcome[1], outcome[2])
         except Exception:
             continue
+

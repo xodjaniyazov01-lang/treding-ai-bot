@@ -1,7 +1,8 @@
-joblib
-numpy
-pandas
-python-dotenv
-requests
-scikit-learn
-yfinance
+joblib>=1.4,<2
+numpy>=1.26,<3
+pandas>=2.2,<3
+python-dotenv>=1.0,<2
+requests>=2.31,<3
+scikit-learn==1.8.0
+yfinance>=0.2.50,<0.3
+
