@@ -21,6 +21,12 @@ from trade_ai.services.db import (
     win_rate_global,
     win_rate_ticker,
 )
+from trade_ai.services.auto_retrain import maybe_auto_retrain
+from trade_ai.services.backtest import build_backtest_report
+from trade_ai.services.daily_report import maybe_send_daily_report
+from trade_ai.services.feedback import save_pending_feedback
+from trade_ai.services.claude_decision import choose_signal_with_claude
+from trade_ai.services.status import build_status_message
 from trade_ai.services.telegram import (
     TelegramLogHandler,
     build_live_status_message,
@@ -102,6 +108,22 @@ def maybe_adjust_threshold(data_error_ratio: Optional[float] = None) -> None:
 
 
 def pick_best(predictions: list[Prediction]) -> Optional[Prediction]:
+    if settings.AI_DECISION_ENABLED:
+        decision = choose_signal_with_claude(predictions, lambda ticker: win_rate_ticker(ticker, n=10))
+        if decision.prediction is not None:
+            logger.info(
+                "AI_DECISION ticker=%s approved=%s score=%.3f reason=%s p=%.2f th=%.2f",
+                decision.prediction.ticker,
+                decision.approved,
+                decision.score,
+                decision.reason,
+                decision.prediction.p,
+                decision.prediction.threshold,
+            )
+        else:
+            logger.info("AI_DECISION approved=False score=%.3f reason=%s", decision.score, decision.reason)
+        return decision.prediction if decision.approved else None
+
     candidates = [
         prediction
         for prediction in predictions
@@ -146,6 +168,7 @@ def pick_fallback_best(predictions: list[Prediction]) -> Optional[Prediction]:
         breakout=best.breakout,
         h1=best.h1,
         d1=best.d1,
+        features=best.features,
     )
 
 
@@ -266,6 +289,22 @@ def maybe_send_health(tf_label: str, cycle_no: int, requests_count: int, last_si
         send_message(text)
 
 
+def maybe_send_status(requests_count: int) -> None:
+    if requests_count <= 0:
+        return
+    text = build_status_message()
+    for _ in range(requests_count):
+        send_message(text)
+
+
+def maybe_send_backtest(requests_count: int) -> None:
+    if requests_count <= 0:
+        return
+    text = build_backtest_report()
+    for _ in range(requests_count):
+        send_message(text)
+
+
 def sltp_valid(entry: float, sl: float, tp: float, side: str) -> bool:
     side = (side or "").upper()
     if side == "BUY":
@@ -335,12 +374,18 @@ def main() -> None:
             now_dt = datetime.now()
             now_str = now_dt.strftime("%Y-%m-%d %H:%M:%S")
             today = now_dt.date().isoformat()
+            if maybe_send_daily_report(now_dt):
+                logger.info("%s | daily report sent", now_str)
+            if maybe_auto_retrain():
+                logger.info("%s | auto retrain checked", now_str)
 
             update_offset, events = poll_updates(update_offset, settings.TF_MAP)
             metrics = runtime_metrics(total_scans, data_errors, low_proba_skips, model_errors, signals_sent, validated_count)
             maybe_send_stats(started_at, events.stats_requests, metrics=metrics)
             maybe_send_model_status(events.model_requests)
             maybe_send_health(tf_label, cycle_no, events.health_requests, last_signal_label, metrics)
+            maybe_send_status(events.status_requests)
+            maybe_send_backtest(events.backtest_requests)
             if events.selected_tf and events.selected_tf != tf_label:
                 tf_label = events.selected_tf
                 logger.info("%s | TF switched to %s", now_str, tf_label)
@@ -592,6 +637,15 @@ def main() -> None:
             if code == 200:
                 signals_sent += 1
                 sent_signals.add(dedupe_key)
+                save_pending_feedback(
+                    signal_id=signal_id,
+                    timestamp=now_dt,
+                    symbol=best.ticker,
+                    signal=best.signal,
+                    confidence=float(best.p),
+                    timeframe=tf_label,
+                    features=best.features,
+                )
                 insert_signal(
                     sig_id=signal_id,
                     ts=int(time.time()),

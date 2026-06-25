@@ -44,6 +44,7 @@ class Prediction:
     breakout: str = "NONE"
     h1: str = ""
     d1: str = ""
+    features: Optional[dict] = None
 
 
 MIN_ATR_PCT_BY_TF = {
@@ -544,6 +545,7 @@ def predict_market(tf_label: str, tickers: Optional[List[str]] = None) -> List[P
                 breakout=breakout,
                 h1=h1_tr,
                 d1=d1_tr,
+                features=feature_row,
             )
         )
     return predictions

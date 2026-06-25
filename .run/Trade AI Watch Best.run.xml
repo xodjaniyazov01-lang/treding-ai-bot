@@ -5,10 +5,11 @@
     <option name="INTERPRETER_OPTIONS" value="" />
     <option name="PARENT_ENVS" value="true" />
     <envs>
-      <env name="PYTHONPATH" value="C:\Users\xodja\OneDrive\Desktop\trade_ai_yf_fix\src" />
+      <env name="PYTHONPATH" value="$PROJECT_DIR$\src" />
+      <env name="PYTHONDONTWRITEBYTECODE" value="1" />
     </envs>
-    <option name="SDK_HOME" value="" />
-    <option name="SDK_NAME" value="Python 3.14 (PythonProject)" />
+    <option name="SDK_HOME" value="$PROJECT_DIR$\.venv\Scripts\python.exe" />
+    <option name="SDK_NAME" value="" />
     <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
     <option name="IS_MODULE_SDK" value="false" />
     <option name="ADD_CONTENT_ROOTS" value="true" />

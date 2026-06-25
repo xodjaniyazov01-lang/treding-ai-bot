@@ -9,6 +9,7 @@ from typing import Dict, Optional, Tuple
 import requests
 
 from trade_ai.config import settings
+from trade_ai.services.feedback import append_feedback
 
 
 @dataclass
@@ -17,6 +18,8 @@ class BotEvents:
     stats_requests: int = 0
     model_requests: int = 0
     health_requests: int = 0
+    status_requests: int = 0
+    backtest_requests: int = 0
 
 
 def tg_api(method: str, data: dict) -> Tuple[int, str]:
@@ -137,8 +140,11 @@ def poll_updates(offset: int, valid_timeframes: Dict[str, tuple]) -> Tuple[int, 
                 answer_callback(callback_id, "Monitoring yuborildi")
             continue
         if callback_data.startswith("WIN:") or callback_data.startswith("LOSS:"):
+            action, signal_id = callback_data.split(":", 1)
+            label = 1 if action == "WIN" else 0
+            saved = append_feedback(signal_id, label)
             if callback_id:
-                answer_callback(callback_id, "Outcome noted")
+                answer_callback(callback_id, "Feedback saved" if saved else "Feedback already saved or expired")
             continue
 
         message = update.get("message") or {}
@@ -147,6 +153,10 @@ def poll_updates(offset: int, valid_timeframes: Dict[str, tuple]) -> Tuple[int, 
             events.stats_requests += 1
         elif text == "/model":
             events.model_requests += 1
+        elif text == "/status":
+            events.status_requests += 1
+        elif text == "/backtest":
+            events.backtest_requests += 1
         elif text in ("/health", "/dashboard"):
             events.health_requests += 1
     return offset, events
@@ -156,7 +166,7 @@ def send_control_panel(tf_label: str) -> Tuple[int, str]:
     text = (
         "<b>Trade AI Control Panel</b>\n"
         f"Current TF: <b>{escape(tf_label)}</b>\n"
-        "Commands: <code>/stats</code> <code>/model</code> <code>/health</code>\n\n"
+        "Commands: <code>/status</code> <code>/backtest</code> <code>/stats</code> <code>/model</code> <code>/health</code>\n\n"
         "Tap to switch timeframe:"
     )
     return send_message(text, reply_markup=tf_keyboard())
@@ -327,8 +337,8 @@ def send_signal(text: str, signal_id: str, ticker: str) -> Tuple[int, str]:
         "reply_markup": {
             "inline_keyboard": [
                 [
-                    {"text": "WIN", "callback_data": f"WIN:{signal_id}"},
-                    {"text": "LOSS", "callback_data": f"LOSS:{signal_id}"},
+                    {"text": "To'g'ri", "callback_data": f"WIN:{signal_id}"},
+                    {"text": "Noto'g'ri", "callback_data": f"LOSS:{signal_id}"},
                 ],
                 [{"text": "TradingView", "url": tradingview_url(ticker)}],
             ]

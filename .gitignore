@@ -6,5 +6,11 @@ __pycache__/
 
 data/signals_history.db
 data/watch_state.json
+data/pending_feedback.json
 data/yf_cache/
 data/logs/
+data/backtest_results.json
+data/training_metrics.json
+signals.csv
+signals.log
+feedback_log.csv
